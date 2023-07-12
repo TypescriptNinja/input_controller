@@ -1,18 +1,23 @@
 import { Subject, fromEvent, interval } from "rxjs";
 import { takeUntil, map, filter, tap } from "rxjs/operators";
+import { JoyStick, JoyStickDirection, Button } from "./input-types";
+import type { JoyStickData } from "./input-types";
 
 export class InputController {
     private _keyMap: { [key: string]: string} = {};
+    private _buttonMap: { [key: number]: string} = {};
     private _keyDown: { [key: string]: boolean} = {};
 
     private _actionStart: Subject<string> = new Subject<string>();
     private _actionEnd: Subject<string> = new Subject<string>();
+    private _joystickAction: Subject<JoyStickData> = new Subject<JoyStickData>();
 
     private _unsubscribe: Subject<void> = new Subject<void>();
     private _disconnect: Subject<void> = new Subject<void>();
 
     $actionStart = this._actionStart.asObservable();
     $actionEnd = this._actionEnd.asObservable();
+    $joystickAction = this._joystickAction.asObservable();
 
     private _controllerButtons: number[] = Array(17).fill(0);
     private _controllerAxes = [
@@ -75,18 +80,29 @@ export class InputController {
 
         this._controllerButtons.forEach((button: number, index: number) => {
             const change = buttons[index] - button;
-            if (!!Math.abs(change)) {
-                console.log(`Button ${index} changed by ${change}`);
-                // check button map for this particular button.
-                // next the action start/end.
+            if (!!Math.abs(change) && this._buttonMap[index]) {
+                if (change > 0) {
+                    this._actionStart.next(this._buttonMap[index]);
+                } else {
+                    this._actionEnd.next(this._buttonMap[index]);
+                }
             }
         });
         this._controllerAxes.forEach((axis: number[], index: number) => {
             const change = axes[index][0] - axis[0];
             if (!!Math.abs(change)) {
-                console.log(`Axis ${index} changed by ${change}, axis: ${axes[index]}`);
-                // check axis map for this particular axis.
-                // next the action start/end.
+                const joystick = index < 2 ? JoyStick.LEFT : JoyStick.RIGHT;
+                let direction;
+                if ([0, 2].includes(index)) {
+                    direction = change > 0 ? 
+                        axes[index][1] > 0 ? JoyStickDirection.RIGHT : JoyStickDirection.LEFT :
+                        JoyStickDirection.NONE;
+                } else {
+                    direction = change > 0 ? 
+                        axes[index][1] > 0 ? JoyStickDirection.DOWN : JoyStickDirection.UP :
+                        JoyStickDirection.NONE;
+                }
+                this._joystickAction.next([joystick, direction, direction === JoyStickDirection.NONE ? 0 : axes[index][1]]);
             }
         });
 
@@ -121,6 +137,14 @@ export class InputController {
         delete this._keyMap[key];
     }
 
+    public addButton(button: Button, action: string) {
+        this._buttonMap[button] = action;
+    }
+
+    public removeButton(button: Button) {
+        delete this._buttonMap[button];
+    }
+
     public destroy() {
         this._unsubscribe.next();
         this._unsubscribe.complete();
@@ -132,5 +156,13 @@ export class InputController {
 
     public set FPS(fps: number) {
         this._fps = fps;
+    }
+
+    public get AxisThreshold(): number {
+        return this._axisThreshold;
+    }
+
+    public set AxisThreshold(threshold: number) {
+        this._axisThreshold = threshold;
     }
 }
